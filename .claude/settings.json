@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/remind_claude_md.py 2>/dev/null || true",
+            "statusMessage": "Checking whether CLAUDE.md needs an update..."
+          }
+        ]
+      }
+    ]
+  }
+}
