@@ -4,22 +4,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A minimal Claude tool-calling agent that looks up current weather for a city entered
-through a Streamlit UI. The agent uses Claude's tool-use loop to invoke a `get_weather`
-tool backed by the free Open-Meteo API (no API key needed for weather data itself, but
-`ANTHROPIC_API_KEY` is required to run the agent).
+A minimal Claude tool-calling agent that looks up current weather for a city, served
+through a FastAPI backend and a React (Vite) frontend. The agent uses Claude's tool-use
+loop to invoke a `get_weather` tool backed by the free Open-Meteo API (no API key needed
+for weather data itself, but `ANTHROPIC_API_KEY` is required to run the agent).
 
 ## Commands
 
 ```bash
-pip install -r requirements.txt      # install dependencies
+pip install -r requirements.txt      # install backend dependencies
 cp .env.example .env                 # then edit .env and set ANTHROPIC_API_KEY
-python -m streamlit run app.py       # run the app (use python -m; `streamlit` may not be on PATH)
+python -m uvicorn api:app --reload   # run the backend API on http://localhost:8000
+
+cd frontend
+npm install                          # install frontend dependencies
+npm run dev                          # run the Vite dev server on http://localhost:5173
 ```
 
-No test suite, linter, or build step is configured.
+Run the backend and frontend in separate terminals; the Vite dev server proxies `/api`
+requests to `http://localhost:8000` (see `frontend/vite.config.js`).
 
-To sanity-check the weather lookup alone, without the LLM or UI:
+No test suite, linter, or build step is configured beyond `npm run build` for a
+production frontend bundle.
+
+To sanity-check the weather lookup alone, without the LLM, API, or UI:
 
 ```bash
 python -c "from weather_tool import get_weather; print(get_weather('London'))"
@@ -27,7 +35,7 @@ python -c "from weather_tool import get_weather; print(get_weather('London'))"
 
 ## Architecture
 
-Three-module pipeline, each with a single responsibility:
+Backend (Python) and frontend (React) are separate processes talking over HTTP.
 
 - **`weather_tool.py`** — `get_weather(city)`. Two-step Open-Meteo call: geocode the
   city name to lat/lon, then fetch current conditions. Raises `WeatherLookupError` on
@@ -38,10 +46,15 @@ Three-module pipeline, each with a single responsibility:
   `stop_reason == "tool_use"`, runs the tool via `_run_tool` and feeds the result back
   as a `tool_result` message, looping until Claude returns plain text. Model id is
   pinned in the `MODEL` constant.
-- **`app.py`** — Streamlit form UI. Reads `ANTHROPIC_API_KEY` from the environment
-  (via `python-dotenv` loading `.env`), warns if missing, and calls
-  `ask_weather_agent` on submit.
+- **`api.py`** — FastAPI app exposing `POST /api/weather` (body: `{"city": "..."}`,
+  response: `{"reply": "..."}`). Loads `ANTHROPIC_API_KEY` from the environment (via
+  `python-dotenv` loading `.env`), builds the user prompt, calls `ask_weather_agent`,
+  and maps failures (missing API key, empty city, agent/tool errors) to HTTP error
+  responses. CORS is enabled for the Vite dev origins (`localhost:5173`).
+- **`frontend/`** — Vite + React UI. `src/App.jsx` holds a form with a city input;
+  on submit it `fetch`es `POST /api/weather` and renders the reply or error. No other
+  state or routing.
 
-`weather_tool.py` has no dependency on `agent.py`/`app.py` and can be tested or reused
-standalone. `agent.py` has no Streamlit dependency and could be driven from a CLI or
-tests without the UI.
+`weather_tool.py` has no dependency on `agent.py`/`api.py` and can be tested or reused
+standalone. `agent.py` has no FastAPI dependency and could be driven from a CLI or
+tests without the API layer.
